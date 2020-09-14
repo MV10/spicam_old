@@ -1,0 +1,30 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.30503.244
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "repository_files", "repository_files", "{58389E30-8168-4B32-A223-968157527792}"
+	ProjectSection(SolutionItems) = preProject
+		README.md = README.md
+	EndProjectSection
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "spicam", "spicam\spicam.csproj", "{9027B2AB-D28E-4BCA-B1BA-975B570096E8}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9027B2AB-D28E-4BCA-B1BA-975B570096E8}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9027B2AB-D28E-4BCA-B1BA-975B570096E8}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9027B2AB-D28E-4BCA-B1BA-975B570096E8}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9027B2AB-D28E-4BCA-B1BA-975B570096E8}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E07EA339-ECC5-415B-95FF-75997DC0C53C}
+	EndGlobalSection
+EndGlobal

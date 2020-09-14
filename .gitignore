@@ -3,6 +3,14 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+
+
+# spicamp project's private configuration
+appsettings.secrets.json
+
+
+
+
 # User-specific files
 *.rsuser
 *.suo
