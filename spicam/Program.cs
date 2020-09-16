@@ -1,5 +1,4 @@
-﻿using MMALSharp.Processors.Motion;
-using System;
+﻿using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -23,10 +22,24 @@ namespace spicam
 {
     public class Program
     {
+        // Used to terminate a thread monitoring a named pipe for receiving new command-line switches.
         private static CancellationTokenSource ctsSwitchPipe;
-        private static CancellationTokenSource ctsCameraProcessing;
 
-        public static CameraManager Camera;
+        /// <summary>
+        /// Defines and controls the current spicam activity.
+        /// </summary>
+        public static CameraStateManager RunningState;
+        
+        /// <summary>
+        /// A new target state after command-line switches are processed.
+        /// </summary>
+        public static CameraStateManager RequestedState;
+
+        /// <summary>
+        /// Used to terminate the camera's RunningState when RequestedState has been changed or
+        /// application shutdown is requested (in which case RequestedState should be null).
+        /// </summary>
+        public static CancellationTokenSource ctsRunningState;
 
         public static async Task Main(string[] args)
         {
@@ -43,23 +56,39 @@ namespace spicam
 
                 // Set up a pipe to receive switches once we're running
                 ctsSwitchPipe = new CancellationTokenSource();
-                var switchServerTask = Task.Run(() => CommandLineSwitchPipe.StartServer(ProcessSwitches, ctsSwitchPipe.Token));
+                _ = Task.Run(() => CommandLineSwitchPipe.StartServer(ProcessSwitches, ctsSwitchPipe.Token));
 
                 // The localpath should be clear of files at startup
                 // TODO HandleAbandonedFiles();
 
-                // Prep the camera
-                Camera = new CameraManager();
-                Camera.Initialize();
+                // The default state, although some command-line switches may change this
+                RequestedState = new MotionDetectionState();
 
-                // Start processing
-                ctsCameraProcessing = new CancellationTokenSource();
-
-
-
-                // If we got any command-line args to this instance, process them now
+                // If command-line args were passed to this instance, process them now
                 if (args.Length > 0)
+                {
                     ProcessSwitches(args, false);
+                    
+                    if(RequestedState == null)
+                    {
+                        Console.WriteLine("No new execution state requested, exiting.");
+                        return;
+                    }
+                }
+
+                // If a command-line switch arrives in the SwitchPipe thread, it can
+                // cancel the state-change token to end the current processing state
+                // and request a different processing state. We loop until no new state
+                // is requested, at which point the app exits.
+                while(RequestedState != null)
+                {
+                    RunningState = RequestedState;
+                    RequestedState = null;
+                    ctsRunningState = new CancellationTokenSource();
+                    await RunningState.RunAsync(ctsRunningState.Token).ConfigureAwait(false);
+                    RunningState.Dispose();
+                    RunningState = null;
+                }
 
             }
             catch (Exception ex)
@@ -70,9 +99,15 @@ namespace spicam
             }
             finally
             {
+                // Stephen Cleary says CTS disposal is unnecessary as long as you cancel
                 ctsSwitchPipe?.Cancel();
-                Camera?.Dispose();
+                ctsRunningState?.Cancel();
+                RequestedState?.Dispose();
+                RunningState?.Dispose();
+
             }
+
+            Console.WriteLine("Exiting spicam.");
         }
 
         private static void ValidateConfiguration()
@@ -114,24 +149,45 @@ namespace spicam
 
             switch(command)
             {
+
                 case "-stop":
                     {
-                        if (!receivedFromPipe)
-                            throw new Exception("Nothing to stop, no running instance of spicam found");
-
                         showHelp = false;
+
+                        if (!receivedFromPipe)
+                            throw new Exception("Nothing to stop, no running instance of spicam found.");
+                        
+                        // Cancel the current processing state. Setting RequestedState
+                        // to null will cause the application to exit.
+                        RequestedState = null;
+                        ctsRunningState.Cancel();
                     }
                     break;
 
+
                 case "-quiet":
                     {
-                        if (args.Length != 2)
+                        showHelp = false;
+
+                        if (args.Length != 2 || !int.TryParse(args[1], out var minutes))
                         {
-                            Console.WriteLine("The -quiet switch requires a 'minutes' parameter");
+                            Console.WriteLine("The -quiet switch requires a 'minutes' parameter.");
                             return;
                         }
 
-                        showHelp = false;
+                        // Ensure the target of this switch is doing motion detection (or will be)
+                        var target = (receivedFromPipe) 
+                            ? RunningState as MotionDetectionState 
+                            : RequestedState as MotionDetectionState;
+
+                        if(target == null)
+                        {
+                            Console.WriteLine("The -quiet switch only applies to motion detection.");
+                            return;
+                        }
+
+                        Console.WriteLine($"Motion detection suppressed for {minutes} minutes.");
+                        target.SetQuietTime(minutes);
                     }
                     break;
 
@@ -143,49 +199,53 @@ namespace spicam
 
                 case "-video":
                     {
+                        showHelp = false;
+
                         if (args.Length != 2)
                         {
-                            Console.WriteLine("The -video switch requires a 'seconds' parameter");
+                            Console.WriteLine("The -video switch requires a 'seconds' parameter.");
                             return;
                         }
 
-                        showHelp = false;
                     }
                     break;
 
                 case "-stream":
                     {
+                        showHelp = false;
+
                         if (args.Length != 2)
                         {
-                            Console.WriteLine("The -stream switch requires an 'on' or 'off' parameter");
+                            Console.WriteLine("The -stream switch requires an 'on' or 'off' parameter.");
                             return;
                         }
 
-                        showHelp = false;
                     }
                     break;
 
                 case "-analysis":
                     {
+                        showHelp = false;
+
                         if (args.Length != 2)
                         {
-                            Console.WriteLine("The -analysis switch requires an 'on' or 'off' parameter");
+                            Console.WriteLine("The -analysis switch requires an 'on' or 'off' parameter.");
                             return;
                         }
 
-                        showHelp = false;
                     }
                     break;
 
                 case "-getmask":
                     {
+                        showHelp = false;
+ 
                         if (args.Length != 2)
                         {
-                            Console.WriteLine("The -getmask switch requires a 'directory' parameter");
+                            Console.WriteLine("The -getmask switch requires a 'directory' parameter.");
                             return;
                         }
 
-                        showHelp = false;
                     }
                     break;
 
@@ -199,15 +259,22 @@ namespace spicam
 
             if(showHelp)
             {
+                Console.WriteLine("\nspicam - Simple Pi Camera");
+                Console.WriteLine("\nA basic motion-detecting Raspberry Pi surveillence camera utility.");
+                Console.WriteLine("See https://github.com/MV10/spicam for more information");
                 Console.WriteLine("\nspicam command-line switches:\n");
+                Console.WriteLine("-?                      help (this list)");
                 Console.WriteLine("-stop                   terminates an already - running instance of spicam");
-                Console.WriteLine("-quiet[minutes]         disables motion detection for the specified time");
+                Console.WriteLine("-quiet [minutes]        disables motion detection for the specified time");
                 Console.WriteLine("-snapshot               write a full - sized timestamped snapshot JPG to the storagepath");
-                Console.WriteLine("-video[seconds]         write full - sized timestamped MP4 video(s) to the storagepath");
+                Console.WriteLine("-video [seconds]        write full - sized timestamped MP4 video(s) to the storagepath");
                 Console.WriteLine("-stream [on | off]      MJPEG stream of the camera's view");
                 Console.WriteLine("-analysis [on | off]    MJPEG stream of the spicam motion detection algorithm");
                 Console.WriteLine("-getmask [directory]    write a 640 x 480 x 24bpp snapshot.bmp to the directory");
-                Console.WriteLine("-?                      help (this list)");
+                Console.WriteLine("\nSwitches may not be combined. The -quiet, -snapshot, and -video switches are only accepted");
+                Console.WriteLine("when spicam is already running in normal motion detection mode. The -stream and -analysis");
+                Console.WriteLine("switches are intended for short-term use. The -stream, -analysis, and -getmask switches will");
+                Console.WriteLine("interrupt motion detection, if running. Set streaming to 'off' to resume motion detection.");
                 Console.WriteLine();
             }
         }

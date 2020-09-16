@@ -7,34 +7,34 @@ using MMALSharp.Handlers;
 using MMALSharp.Native;
 using MMALSharp.Ports;
 using MMALSharp.Ports.Outputs;
-using MMALSharp.Processors.Motion;
 using System;
 using System.Drawing;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace spicam
 {
-    public class CameraManager : IDisposable
+    /// <summary>
+    /// Base class for state managers that interact with the camera module and MMAL library.
+    /// </summary>
+    public abstract class CameraStateManager : IDisposable
     {
         public MMALCamera Cam;
 
         public CircularBufferCaptureHandler VideoCaptureHandler;
         public FrameBufferCaptureHandler MotionCaptureHandler;
+        public MMALSplitterComponent splitter;
+        public MMALIspComponent resizer;
+        public MMALVideoEncoder videoEncoder;
 
-        private MMALSplitterComponent splitter;
-        private MMALIspComponent resizer;
-        private MMALVideoEncoder videoEncoder;
-
-        private MotionAlgorithmRGBDiff motionAlgorithm;
-        private MotionConfig motionConfig;
-
-        public void Initialize()
+        public CameraStateManager()
         {
-            ConfigureCamera();
-            ConfigurePipeline();
-            ConfigureMotion();
+            Cam = MMALCamera.Instance;
         }
 
-        public void Dispose()
+        public abstract Task RunAsync(CancellationToken cancellationToken);
+
+        public virtual void Dispose()
         {
             VideoCaptureHandler?.Dispose();
             MotionCaptureHandler?.Dispose();
@@ -44,10 +44,15 @@ namespace spicam
             Cam?.Cleanup();
         }
 
-        private void ConfigureCamera()
+        protected virtual void Initialize()
+        {
+            ConfigureCamera();
+            ConfigurePipeline();
+        }
+
+        protected virtual void ConfigureCamera()
         {
             Console.WriteLine("Configuring camera...");
-            Cam = MMALCamera.Instance;
 
             MMALCameraConfig.Resolution = new Resolution(1296, 972);
             MMALCameraConfig.SensorMode = MMALSensorMode.Mode4;
@@ -82,7 +87,7 @@ namespace spicam
             Cam.EnableAnnotation();
         }
 
-        private void ConfigurePipeline()
+        protected virtual void ConfigurePipeline()
         {
             Console.WriteLine("Preparing pipeline...");
 
@@ -100,23 +105,6 @@ namespace spicam
 
             splitter.Outputs[0].ConnectTo(resizer);
             splitter.Outputs[1].ConnectTo(videoEncoder);
-        }
-
-        private void ConfigureMotion()
-        {
-            Console.WriteLine("Configuring motion detection...");
-
-            motionAlgorithm = new MotionAlgorithmRGBDiff(
-                    rgbThreshold: AppConfig.Get.Motion.RgbThreshold,
-                    cellPixelPercentage: AppConfig.Get.Motion.CellPercentage,
-                    cellCountThreshold: AppConfig.Get.Motion.CellCount
-                );
-
-            motionConfig = new MotionConfig(
-                    algorithm: motionAlgorithm,
-                    testFrameInterval: TimeSpan.FromSeconds(AppConfig.Get.Motion.TestFrameInterval),
-                    testFrameCooldown: TimeSpan.FromSeconds(AppConfig.Get.Motion.TestFrameCooldown)
-                );
         }
     }
 }
