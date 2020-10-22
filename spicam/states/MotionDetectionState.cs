@@ -1,7 +1,5 @@
-﻿using MMALSharp.Common.Utility;
-using MMALSharp.Processors.Motion;
+﻿using MMALSharp.Processors.Motion;
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -13,6 +11,28 @@ namespace spicam
     public class MotionDetectionState : CameraStateManager
     {
         public MotionConfig motionConfig;
+
+        private bool recordingActive = false;
+        private DateTime recordingStartTime;
+        private CancellationTokenSource recordingStateChecker;
+
+        // Once recording starts, do not stop until this point
+        private DateTime minimumStopTarget;
+
+        // When motion detection events end, keep recording until this point
+        private DateTime motionEndedStopTarget;
+
+        // Segment the recording and send to storage at this point
+        private DateTime nextSegmentTarget;
+
+        // Never record longer than this point
+        private DateTime maximumStopTarget;
+
+        // If we reached the maximumStopTarget, ignore new motion events until this point
+        private DateTime maxRecordTimeCooldown = DateTime.MinValue;
+
+        private bool quietTime = false;
+        private DateTime endQuietTime;
 
         public MotionDetectionState()
             : base()
@@ -32,8 +52,7 @@ namespace spicam
                 .ProcessAsync(Cam.Camera.VideoPort, cancellationToken)
                 .ConfigureAwait(false);
 
-            // TODO clean up properly if we're in the middle of a motion detection event
-
+            AbortRecording();
         }
 
         /// <summary>
@@ -43,13 +62,32 @@ namespace spicam
         /// </summary>
         public void SetQuietTime(int minutes)
         {
+            AbortRecording();
+            quietTime = true;
+            endQuietTime = DateTime.Now.AddMinutes(minutes);
+        }
 
+        /// <summary>
+        /// Immediately aborts any in-progress recording and processes the files.
+        /// No effect if recording is not active.
+        /// </summary>
+        public void AbortRecording()
+        {
+            if (!recordingActive) return;
+
+            Console.WriteLine($"Ended recording at {DateTime.Now:o}");
+
+            recordingActive = false;
+            recordingStateChecker?.Cancel();
+
+            // TODO Process the recorded files
         }
 
         public override void Dispose()
         {
-            base.Dispose();
             Console.WriteLine("Exiting state: motion detection");
+            AbortRecording();
+            base.Dispose();
         }
 
         protected override void Initialize()
@@ -60,7 +98,73 @@ namespace spicam
 
         private async void OnMotionDetected()
         {
+            try
+            {
+                if (quietTime)
+                {
+                    if (DateTime.Now < endQuietTime) return;
+                    quietTime = false;
+                }
 
+                if (DateTime.Now < maxRecordTimeCooldown) return;
+                maxRecordTimeCooldown = DateTime.MinValue;
+
+                if(recordingActive)
+                {
+                    motionEndedStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MotionEndedThresholdSecs);
+                }
+
+                if (!recordingActive)
+                {
+                    Console.WriteLine($"Started recording at {DateTime.Now:o}");
+                    recordingActive = true;
+                    recordingStartTime = DateTime.Now;
+                    minimumStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MinimumRecordTimeSecs);
+                    motionEndedStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MotionEndedThresholdSecs);
+                    nextSegmentTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.SegmentRecordingSecs);
+                    maximumStopTarget = DateTime.Now.AddMinutes(AppConfig.Get.Recording.MaximumRecordTimeMin);
+                    PrepareStateCheck();
+
+                    // TODO Split the buffer, take snapshots, start recording, send alerts, update log
+                }
+            }
+            catch(Exception ex)
+            {
+                Console.WriteLine($"\nException of type {ex.GetType().Name}\n{ex.Message}");
+                if (ex.InnerException != null) Console.Write(ex.InnerException.Message);
+                Console.WriteLine($"\n{ex.StackTrace}");
+            }
+        }
+
+        private void PrepareStateCheck()
+        {
+            if (!recordingActive) return;
+            recordingStateChecker?.Dispose();
+            recordingStateChecker = new CancellationTokenSource();
+            recordingStateChecker.Token.Register(StateCheck);
+            recordingStateChecker.CancelAfter(500);
+        }
+
+        private void StateCheck()
+        {
+            if (!recordingActive) return;
+
+            var now = DateTime.Now;
+
+            if(now > minimumStopTarget)
+            {
+                if(now > motionEndedStopTarget || now > maximumStopTarget)
+                {
+                    AbortRecording();
+
+                    if(now > maximumStopTarget)
+                    {
+                        maxRecordTimeCooldown = now.AddMinutes(AppConfig.Get.Recording.MaximumReachedCooldownMin);
+                    }
+                }
+            }
+
+            if (recordingActive) PrepareStateCheck();
         }
 
         private void ConfigureMotion()

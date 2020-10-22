@@ -29,6 +29,7 @@ namespace spicam
                 .AddJsonFile("appsettings.secrets.json", optional: true)
                 .Build()
                 .Get<AppConfig>();
+                // oddly, IConfiguration.Get<T> comes from Microsoft.Extensions.Logging...
         }
 
         /// <summary>

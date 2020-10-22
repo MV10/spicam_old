@@ -140,7 +140,7 @@ namespace spicam
             ProcessSwitches(args, true);
         }
 
-        private static void ProcessSwitches(string[] args, bool receivedFromPipe)
+        private static void ProcessSwitches(string[] args, bool argsReceivedFromPipe)
         {
             if (args.Length == 0) return;
 
@@ -154,7 +154,7 @@ namespace spicam
                     {
                         showHelp = false;
 
-                        if (!receivedFromPipe)
+                        if (!argsReceivedFromPipe)
                             throw new Exception("Nothing to stop, no running instance of spicam found.");
                         
                         // Cancel the current processing state. Setting RequestedState
@@ -176,7 +176,7 @@ namespace spicam
                         }
 
                         // Ensure the target of this switch is doing motion detection (or will be)
-                        var target = (receivedFromPipe) 
+                        var target = (argsReceivedFromPipe) 
                             ? RunningState as MotionDetectionState 
                             : RequestedState as MotionDetectionState;
 
@@ -264,10 +264,10 @@ namespace spicam
                 Console.WriteLine("See https://github.com/MV10/spicam for more information");
                 Console.WriteLine("\nspicam command-line switches:\n");
                 Console.WriteLine("-?                      help (this list)");
-                Console.WriteLine("-stop                   terminates an already - running instance of spicam");
+                Console.WriteLine("-stop                   terminates an already-running instance of spicam");
                 Console.WriteLine("-quiet [minutes]        disables motion detection for the specified time");
-                Console.WriteLine("-snapshot               write a full - sized timestamped snapshot JPG to the storagepath");
-                Console.WriteLine("-video [seconds]        write full - sized timestamped MP4 video(s) to the storagepath");
+                Console.WriteLine("-snapshot               write a full-sized timestamped snapshot JPG to the storagepath");
+                Console.WriteLine("-video [seconds]        write full-sized timestamped MP4 video(s) to the storagepath");
                 Console.WriteLine("-stream [on | off]      MJPEG stream of the camera's view");
                 Console.WriteLine("-analysis [on | off]    MJPEG stream of the spicam motion detection algorithm");
                 Console.WriteLine("-getmask [directory]    write a 640 x 480 x 24bpp snapshot.bmp to the directory");
