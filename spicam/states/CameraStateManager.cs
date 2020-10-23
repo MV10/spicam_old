@@ -19,44 +19,100 @@ namespace spicam
     /// </summary>
     public abstract class CameraStateManager : IDisposable
     {
+        /// <summary>
+        /// The active camera.
+        /// </summary>
         public MMALCamera Cam;
 
+        /// <summary>
+        /// A circular buffer that continuously stores a video loop until a
+        /// motion detection event triggers storage of a new video clip.
+        /// </summary>
         public CircularBufferCaptureHandler VideoCaptureHandler;
+        
+        /// <summary>
+        /// A single-frame buffer which stores the most recent full-size
+        /// image, which can be  used to wriite a high-resolution snapshot.
+        /// </summary>
+        public FrameBufferCaptureHandler SnapshotCaptureHandler;
+        
+        /// <summary>
+        /// A buffer which feeds data into the frame-buffer-based motion
+        /// detection algorithm.
+        /// </summary>
         public FrameBufferCaptureHandler MotionCaptureHandler;
-        public MMALSplitterComponent splitter;
-        public MMALIspComponent resizer;
-        public MMALVideoEncoder videoEncoder;
+        
+        /// <summary>
+        /// Directs full-sized image data to multiple processing endpoints.
+        /// </summary>
+        public MMALSplitterComponent Splitter;
+        
+        /// <summary>
+        /// Resizes the full-resolution images to the 640 x 480 format used
+        /// by the motion detection algorithm.
+        /// </summary>
+        public MMALIspComponent Resizer;
+        
+        /// <summary>
+        /// Encodes raw frame data to an h.264 stream to feed into the
+        /// circular video buffer.
+        /// </summary>
+        public MMALVideoEncoder VideoEncoder;
+        
+        /// <summary>
+        /// Encodes each raw frame data to a JPEG image to feed into the
+        /// snapshot frame buffer.
+        /// </summary>
+        public MMALImageEncoder SnapshotEncoder;
 
+        /// <summary>
+        /// Constructor.
+        /// </summary>
         public CameraStateManager()
         {
             Cam = MMALCamera.Instance;
         }
 
-        public abstract Task RunAsync(CancellationToken cancellationToken);
-
-        public virtual void Dispose()
-        {
-            VideoCaptureHandler?.Dispose();
-            MotionCaptureHandler?.Dispose();
-            videoEncoder?.Dispose();
-            resizer?.Dispose();
-            splitter?.Dispose();
-            Cam?.Cleanup();
-        }
-
+        /// <summary>
+        /// Configures the camera and the pipeline. Derived classes should
+        /// invoke this first from their <see cref="RunAsync"/> implementation.
+        /// </summary>
         protected virtual void Initialize()
         {
             ConfigureCamera();
             ConfigurePipeline();
         }
 
+        /// <summary>
+        /// The main processing loop, which derived classes must implement.
+        /// </summary>
+        public abstract Task RunAsync(CancellationToken cancellationToken);
+
+        /// <summary>
+        /// <inheritdoc />
+        /// </summary>
+        public virtual void Dispose()
+        {
+            VideoCaptureHandler?.Dispose();
+            SnapshotCaptureHandler?.Dispose();
+            MotionCaptureHandler?.Dispose();
+            VideoEncoder?.Dispose();
+            SnapshotEncoder?.Dispose();
+            Resizer?.Dispose();
+            Splitter?.Dispose();
+            Cam?.Cleanup();
+        }
+
+        /// <summary>
+        /// Camera settings (applies both config and hard-coded defaults).
+        /// </summary>
         protected virtual void ConfigureCamera()
         {
             Console.WriteLine("Configuring camera...");
 
-            MMALCameraConfig.Resolution = new Resolution(1296, 972);
-            MMALCameraConfig.SensorMode = MMALSensorMode.Mode4;
-            MMALCameraConfig.Framerate = new MMAL_RATIONAL_T(24, 1); // numerator & denominator
+            MMALCameraConfig.Resolution = new Resolution(AppConfig.Get.Camera.Width, AppConfig.Get.Camera.Height);
+            MMALCameraConfig.SensorMode = AppConfig.Get.Camera.Mode;
+            MMALCameraConfig.Framerate = AppConfig.Get.Camera.FPS;
 
             var overlay = new AnnotateImage(AppConfig.Get.Name, 30, Color.White)
             {
@@ -87,24 +143,31 @@ namespace spicam
             Cam.EnableAnnotation();
         }
 
+        /// <summary>
+        /// Wires up the various image processing components.
+        /// </summary>
         protected virtual void ConfigurePipeline()
         {
             Console.WriteLine("Preparing pipeline...");
 
             VideoCaptureHandler = new CircularBufferCaptureHandler(4000000, AppConfig.Get.LocalPath, "h264");
             MotionCaptureHandler = new FrameBufferCaptureHandler();
+            SnapshotCaptureHandler = new FrameBufferCaptureHandler(directory: AppConfig.Get.LocalPath, extension: "jpg", fileDateTimeFormat: Program.FILENAME_DATE_FORMAT);
 
-            splitter = new MMALSplitterComponent();
-            resizer = new MMALIspComponent();
-            videoEncoder = new MMALVideoEncoder();
+            Splitter = new MMALSplitterComponent();
+            Resizer = new MMALIspComponent();
+            VideoEncoder = new MMALVideoEncoder();
+            SnapshotEncoder = new MMALImageEncoder(continuousCapture: true);
 
-            resizer.ConfigureOutputPort<VideoPort>(0, new MMALPortConfig(MMALEncoding.RGB24, MMALEncoding.RGB24, width: 640, height: 480), MotionCaptureHandler);
-            videoEncoder.ConfigureOutputPort(new MMALPortConfig(MMALEncoding.H264, MMALEncoding.I420, quality: 10, MMALVideoEncoder.MaxBitrateLevel4), VideoCaptureHandler);
+            Resizer.ConfigureOutputPort<VideoPort>(0, new MMALPortConfig(MMALEncoding.RGB24, MMALEncoding.RGB24, width: 640, height: 480), MotionCaptureHandler);
+            VideoEncoder.ConfigureOutputPort(new MMALPortConfig(MMALEncoding.H264, MMALEncoding.I420, quality: 10, MMALVideoEncoder.MaxBitrateLevel4), VideoCaptureHandler);
+            SnapshotEncoder.ConfigureOutputPort(new MMALPortConfig(MMALEncoding.JPEG, MMALEncoding.I420, quality: 90), SnapshotCaptureHandler);
 
-            Cam.Camera.VideoPort.ConnectTo(splitter);
+            Cam.Camera.VideoPort.ConnectTo(Splitter);
 
-            splitter.Outputs[0].ConnectTo(resizer);
-            splitter.Outputs[1].ConnectTo(videoEncoder);
+            Splitter.Outputs[0].ConnectTo(Resizer);
+            Splitter.Outputs[1].ConnectTo(VideoEncoder);
+            Splitter.Outputs[2].ConnectTo(SnapshotEncoder);
         }
     }
 }

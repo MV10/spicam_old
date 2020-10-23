@@ -22,8 +22,10 @@ namespace spicam
 {
     public class Program
     {
-        // Used to terminate a thread monitoring a named pipe for receiving new command-line switches.
-        private static CancellationTokenSource ctsSwitchPipe;
+        /// <summary>
+        /// Standardized format for stored video and snapshot filenames.
+        /// </summary>
+        public static readonly string FILENAME_DATE_FORMAT = "yyyy-MM-dd-HH-mm-ss-ffff";
 
         /// <summary>
         /// Defines and controls the current spicam activity.
@@ -40,6 +42,9 @@ namespace spicam
         /// application shutdown is requested (in which case RequestedState should be null).
         /// </summary>
         public static CancellationTokenSource ctsRunningState;
+
+        // Terminates the thread monitoring a named pipe for receiving new command-line switches.
+        private static CancellationTokenSource ctsSwitchPipe;
 
         public static async Task Main(string[] args)
         {
@@ -59,7 +64,7 @@ namespace spicam
                 _ = Task.Run(() => CommandLineSwitchPipe.StartServer(ProcessSwitches, ctsSwitchPipe.Token));
 
                 // The localpath should be clear of files at startup
-                // TODO HandleAbandonedFiles();
+                HandleAbandonedFiles();
 
                 // The default state, although some command-line switches may change this
                 RequestedState = new MotionDetectionState();
@@ -110,12 +115,21 @@ namespace spicam
             Console.WriteLine("Exiting spicam.");
         }
 
+        private static void HandleAbandonedFiles()
+        {
+            FileProcessing.MoveSnapshotsToStorage();
+
+            // TODO Process h.264 files, figure out how to tell abandoned buffers from saved clips
+
+            FileProcessing.DeleteAbandonedFiles();
+        }
+
         private static void ValidateConfiguration()
         {
             Console.WriteLine("Loading and validating configuration...");
             AppConfig.LoadConfiguration();
 
-            // Did the programmer accidentally hit F5? (That NEVER happens...)
+            // Did the programmer accidentally hit F5 in VS on Windows? (That NEVER happens...)
             if (Environment.OSVersion.Platform != PlatformID.Unix)
                 throw new Exception("This application only runs on a camera-equipped Raspberry Pi");
 
@@ -132,6 +146,10 @@ namespace spicam
             if (!string.IsNullOrEmpty(mask) && !File.Exists(mask))
                 throw new Exception($"Unable to find or access motion mask: {mask}");
 
+            // Is the snapshot count valid?
+            var snaps = AppConfig.Get.Recording.SnapshoutCount;
+            if (snaps < 0 || snaps > 3)
+                throw new Exception("SnapshotCount must be in the range of 0 to 3.");
         }
 
         private static void ProcessSwitches(string[] args)

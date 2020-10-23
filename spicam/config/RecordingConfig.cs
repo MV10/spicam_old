@@ -36,5 +36,12 @@ namespace spicam
         /// threshold is triggered. Default is 30 minutes.
         /// </summary>
         public int MaximumReachedCooldownMin { get; set; } = 30;
+
+        /// <summary>
+        /// Number of full-resolution still-frame snapshot JPEGs to capture when motion is
+        /// detected. Snapshots are taken once per second. Snapshots are attached to any
+        /// email notifications. Set to 0 to disable, maximum value is 3. Default is 3.
+        /// </summary>
+        public int SnapshoutCount { get; set; } = 3;
     }
 }

@@ -10,16 +10,31 @@ namespace spicam
     /// </summary>
     public class MotionDetectionState : CameraStateManager
     {
+        /// <summary>
+        /// The active motion detection algorithm and frame buffering settings.
+        /// </summary>
         public MotionConfig motionConfig;
 
-        private bool recordingActive = false;
-        private DateTime recordingStartTime;
-        private CancellationTokenSource recordingStateChecker;
+        /// <summary>
+        /// Indicates whether spicam is actively recording a motion detection clip.
+        /// </summary>
+        public bool RecordingActive { get; private set; } = false;
+        
+        // Used to rename video clips when sending to permanent storage
+        private string recordingStartTimeFilename;
+        private int recordingSegment;
+
+        // These capture the optional 2- and 3-second snapshots
+        private CancellationTokenSource snapshotTwoSec;
+        private CancellationTokenSource snapshotThreeSec;
+
+        // Tests the following stopping targets every 500ms
+        private CancellationTokenSource recordingStatusChecker;
 
         // Once recording starts, do not stop until this point
         private DateTime minimumStopTarget;
 
-        // When motion detection events end, keep recording until this point
+        // When motion detection events have ended, keep recording until this point
         private DateTime motionEndedStopTarget;
 
         // Segment the recording and send to storage at this point
@@ -34,12 +49,18 @@ namespace spicam
         private bool quietTime = false;
         private DateTime endQuietTime;
 
+        /// <summary>
+        /// <inheritdoc />
+        /// </summary>
         public MotionDetectionState()
             : base()
         {
             Console.WriteLine("Entering state: motion detection");
         }
 
+        /// <summary>
+        /// <inheritdoc />
+        /// </summary>
         public override async Task RunAsync(CancellationToken cancellationToken)
         {
             Initialize();
@@ -73,29 +94,43 @@ namespace spicam
         /// </summary>
         public void AbortRecording()
         {
-            if (!recordingActive) return;
+            if (!RecordingActive) return;
 
             Console.WriteLine($"Ended recording at {DateTime.Now:o}");
 
-            recordingActive = false;
-            recordingStateChecker?.Cancel();
+            RecordingActive = false;
+            snapshotTwoSec?.Cancel();
+            snapshotThreeSec?.Cancel();
+            recordingStatusChecker?.Cancel();
 
-            // TODO Process the recorded files
+            VideoCaptureHandler.StopRecording();
+
+            ProcessFiles();
+            FileProcessing.DeleteAbandonedFiles();
         }
 
+        /// <summary>
+        /// <inheritdoc />
+        /// </summary>
         public override void Dispose()
         {
-            Console.WriteLine("Exiting state: motion detection");
             AbortRecording();
             base.Dispose();
+            Console.WriteLine("Exiting state: motion detection");
         }
 
+        /// <summary>
+        /// <inheritdoc />
+        /// </summary>
         protected override void Initialize()
         {
             base.Initialize();
-            ConfigureMotion();
+            ConfigureMotionDetection();
         }
 
+        /// <summary>
+        /// The event handler that is invoked when the library detects motion.
+        /// </summary>
         private async void OnMotionDetected()
         {
             try
@@ -109,23 +144,15 @@ namespace spicam
                 if (DateTime.Now < maxRecordTimeCooldown) return;
                 maxRecordTimeCooldown = DateTime.MinValue;
 
-                if(recordingActive)
+                if(RecordingActive)
                 {
                     motionEndedStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MotionEndedThresholdSecs);
                 }
 
-                if (!recordingActive)
+                if (!RecordingActive)
                 {
                     Console.WriteLine($"Started recording at {DateTime.Now:o}");
-                    recordingActive = true;
-                    recordingStartTime = DateTime.Now;
-                    minimumStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MinimumRecordTimeSecs);
-                    motionEndedStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MotionEndedThresholdSecs);
-                    nextSegmentTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.SegmentRecordingSecs);
-                    maximumStopTarget = DateTime.Now.AddMinutes(AppConfig.Get.Recording.MaximumRecordTimeMin);
-                    PrepareStateCheck();
-
-                    // TODO Split the buffer, take snapshots, start recording, send alerts, update log
+                    BeginRecording();
                 }
             }
             catch(Exception ex)
@@ -136,18 +163,107 @@ namespace spicam
             }
         }
 
-        private void PrepareStateCheck()
+        /// <summary>
+        /// A new motion detection event has been triggered.
+        /// </summary>
+        private void BeginRecording()
         {
-            if (!recordingActive) return;
-            recordingStateChecker?.Dispose();
-            recordingStateChecker = new CancellationTokenSource();
-            recordingStateChecker.Token.Register(StateCheck);
-            recordingStateChecker.CancelAfter(500);
+            // Set some flags used to manage the recording process
+            RecordingActive = true;
+
+            recordingStartTimeFilename = DateTime.Now.ToString(Program.FILENAME_DATE_FORMAT);
+            recordingSegment = 1;
+            
+            minimumStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MinimumRecordTimeSecs);
+            motionEndedStopTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.MotionEndedThresholdSecs);
+            nextSegmentTarget = DateTime.Now.AddSeconds(AppConfig.Get.Recording.SegmentRecordingSecs);
+            maximumStopTarget = DateTime.Now.AddMinutes(AppConfig.Get.Recording.MaximumRecordTimeMin);
+
+            // Set up the snapshots and logging/notification
+            LogMotionEvent();
+            PrepareSnapshots();
+
+            // Start the recording and the stop-recording timing-checks
+            VideoCaptureHandler.StartRecording(VideoEncoder.RequestIFrame);
+            PrepareStatusCheck();
         }
 
-        private void StateCheck()
+        /// <summary>
+        /// Writes a new event to a log file on the storage path.
+        /// </summary>
+        private void LogMotionEvent()
         {
-            if (!recordingActive) return;
+            // TODO Log new motion event
+        }
+
+        /// <summary>
+        /// Takes optional immediate, 2- and 3-second snapshots and invokes
+        /// motion event logging and notification after all snapshots are taken
+        /// </summary>
+        private void PrepareSnapshots()
+        {
+            switch (AppConfig.Get.Recording.SnapshoutCount)
+            {
+                case 0:
+                    SendNotifications();
+                    break;
+
+                case 1:
+                    SnapshotCaptureHandler.WriteFrame();
+                    SendNotifications();
+                    break;
+
+                case 2:
+                    SnapshotCaptureHandler.WriteFrame();
+                    snapshotTwoSec = new CancellationTokenSource();
+                    snapshotTwoSec.Token.Register(() =>
+                    {
+                        SnapshotCaptureHandler.WriteFrame();
+                        SendNotifications();
+                    });
+                    snapshotTwoSec.CancelAfter(1000);
+                    break;
+
+                case 3:
+                    SnapshotCaptureHandler.WriteFrame();
+                    snapshotTwoSec = new CancellationTokenSource();
+                    snapshotTwoSec.Token.Register(SnapshotCaptureHandler.WriteFrame);
+                    snapshotTwoSec.CancelAfter(1000);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Updates the motion detection log and sends notifications (including any snapshot attachments,
+        /// so do not invoke this until all snapshots have been generated).
+        /// </summary>
+        private void SendNotifications()
+        {
+            // TODO Send notification emails with snapshot attachments
+
+            FileProcessing.MoveSnapshotsToStorage();
+        }
+
+        /// <summary>
+        /// Creates a 500ms cancellation token timeout which invokes <see cref="RecordingStatusCheck"/>.
+        /// </summary>
+        private void PrepareStatusCheck()
+        {
+            if (!RecordingActive) return;
+            recordingStatusChecker?.Dispose();
+            recordingStatusChecker = new CancellationTokenSource();
+            recordingStatusChecker.Token.Register(RecordingStatusCheck);
+            recordingStatusChecker.CancelAfter(500);
+        }
+
+        /// <summary>
+        /// When recording is active, every 500ms this method tests the current time against various
+        /// target times to decide whether to end the recording and process the files. Also manages
+        /// splitting the video for longer recordings.
+        /// </summary>
+        private void RecordingStatusCheck()
+        {
+            if (!RecordingActive) return;
 
             var now = DateTime.Now;
 
@@ -155,19 +271,53 @@ namespace spicam
             {
                 if(now > motionEndedStopTarget || now > maximumStopTarget)
                 {
-                    AbortRecording();
-
-                    if(now > maximumStopTarget)
+                    if (now > maximumStopTarget)
                     {
+                        Console.WriteLine("Maximum recording duration reached.");
                         maxRecordTimeCooldown = now.AddMinutes(AppConfig.Get.Recording.MaximumReachedCooldownMin);
                     }
+
+                    AbortRecording();
                 }
             }
 
-            if (recordingActive) PrepareStateCheck();
+            if (RecordingActive)
+            {
+                if(now > nextSegmentTarget)
+                {
+                    Console.WriteLine("Segmenting the recording.");
+                    ProcessFiles();
+                    nextSegmentTarget = now.AddSeconds(AppConfig.Get.Recording.SegmentRecordingSecs);
+                }
+
+                PrepareStatusCheck();
+            }
         }
 
-        private void ConfigureMotion()
+        /// <summary>
+        /// Splits longer recordings and processes the file so that the recording does not exceed the
+        /// allocated local storage space. If recording is over, call StopRecording before calling this.
+        /// </summary>
+        private void ProcessFiles()
+        {
+            // This will change after the call to Split
+            var localFilename = VideoCaptureHandler.CurrentFilename;
+
+            // TODO Support optional on-the-fly encoding to MP4
+            var storageFilename = $"{recordingStartTimeFilename}_{recordingSegment:000}.h264";
+
+            VideoCaptureHandler.Split();
+
+            FileProcessing.MoveVideoToStorage(localFilename, storageFilename);
+
+            recordingSegment++;
+        }
+
+        /// <summary>
+        /// Uses configuration settings to prepare the motion detection algorithm and frame
+        /// buffering behaviors.
+        /// </summary>
+        private void ConfigureMotionDetection()
         {
             Console.WriteLine("Configuring motion detection...");
 
