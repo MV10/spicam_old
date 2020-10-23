@@ -59,7 +59,7 @@ namespace spicam
         /// </summary>
         public static async Task StartServer(Action<string[]> switchHandler, CancellationToken cancellationToken)
         {
-            Console.WriteLine("The running instance is listening for switch commands.\nTo end the spicam process execute:\n\tdotnet spicam.dll -stop");
+            Console.WriteLine("The running instance is listening for switch commands.\nTo end the spicam process execute:\n\tdotnet spicam.dll -stop\n");
 
             try
             {

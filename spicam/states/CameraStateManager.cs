@@ -77,10 +77,19 @@ namespace spicam
         /// Configures the camera and the pipeline. Derived classes should
         /// invoke this first from their <see cref="RunAsync"/> implementation.
         /// </summary>
-        protected virtual void Initialize()
+        protected virtual async Task Initialize()
         {
             ConfigureCamera();
             ConfigurePipeline();
+
+            Console.Write("Camera warmup");
+            int countdown = 8;
+            while(countdown-- > 0)
+            {
+                Console.Write(".");
+                await Task.Delay(250);
+            }
+            Console.WriteLine();
         }
 
         /// <summary>
@@ -93,6 +102,7 @@ namespace spicam
         /// </summary>
         public virtual void Dispose()
         {
+            Console.WriteLine("Shutting down pipeline.");
             VideoCaptureHandler?.Dispose();
             SnapshotCaptureHandler?.Dispose();
             MotionCaptureHandler?.Dispose();
@@ -100,6 +110,8 @@ namespace spicam
             SnapshotEncoder?.Dispose();
             Resizer?.Dispose();
             Splitter?.Dispose();
+
+            Console.WriteLine("Shutting down camera.");
             Cam?.Cleanup();
         }
 
@@ -108,7 +120,7 @@ namespace spicam
         /// </summary>
         protected virtual void ConfigureCamera()
         {
-            Console.WriteLine("Configuring camera...");
+            Console.WriteLine("Configuring camera.");
 
             MMALCameraConfig.Resolution = new Resolution(AppConfig.Get.Camera.Width, AppConfig.Get.Camera.Height);
             MMALCameraConfig.SensorMode = AppConfig.Get.Camera.Mode;
@@ -148,7 +160,7 @@ namespace spicam
         /// </summary>
         protected virtual void ConfigurePipeline()
         {
-            Console.WriteLine("Preparing pipeline...");
+            Console.WriteLine("Preparing pipeline.");
 
             VideoCaptureHandler = new CircularBufferCaptureHandler(4000000, AppConfig.Get.LocalPath, "h264");
             MotionCaptureHandler = new FrameBufferCaptureHandler();

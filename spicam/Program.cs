@@ -25,7 +25,7 @@ namespace spicam
         /// <summary>
         /// Standardized format for stored video and snapshot filenames.
         /// </summary>
-        public static readonly string FILENAME_DATE_FORMAT = "yyyy-MM-dd-HH-mm-ss-ffff";
+        public static readonly string FILENAME_DATE_FORMAT = "yyyy-MM-dd_HH.mm.ss.ffff";
 
         /// <summary>
         /// Defines and controls the current spicam activity.
@@ -48,6 +48,8 @@ namespace spicam
 
         public static async Task Main(string[] args)
         {
+            Logo();
+
             try
             {
                 // TODO PrepareLogger();
@@ -65,7 +67,7 @@ namespace spicam
 
                 // The localpath should be clear of files at startup
                 FileProcessing.MoveSnapshotsToStorage();
-                FileProcessing.MoveAbandonedVideoToStorage();
+                FileProcessing.MoveAbandonedVideoToStorage(); // TODO remove zero-length circular buffer h264, don't move it
                 FileProcessing.ClearLocalStorage();
 
                 // The default state, although some command-line switches may change this
@@ -96,7 +98,6 @@ namespace spicam
                     RunningState.Dispose();
                     RunningState = null;
                 }
-
             }
             catch (Exception ex)
             {
@@ -111,7 +112,6 @@ namespace spicam
                 ctsRunningState?.Cancel();
                 RequestedState?.Dispose();
                 RunningState?.Dispose();
-
             }
 
             Console.WriteLine("Exiting spicam.");
@@ -119,8 +119,8 @@ namespace spicam
 
         private static void ValidateConfiguration()
         {
-            Console.WriteLine("Loading and validating configuration...");
             AppConfig.LoadConfiguration();
+            Console.WriteLine("Validating configuration.");
 
             // Did the programmer accidentally hit F5 in VS on Windows? (That NEVER happens...)
             if (Environment.OSVersion.Platform != PlatformID.Unix)
@@ -153,6 +153,24 @@ namespace spicam
             }
         }
 
+        static void Logo()
+        {
+            Console.WriteLine(@"
+
+       [ ]
+  ___ _._. __ __ _ _ _
+ / _|`_\ |/ _|_ `|` ` |
+ \_ \  / | /_/ - | \/ |
+ |__/ /|_|\__|__,|_||_|
+ ~~~|_|~~~~~~~~~~~~~~~~
+
+ The Simple Pi Camera
+ A Raspberry Pi motion-detecting surveillence camera service.
+ https://github.com/MV10/spicam
+
+");
+        }
+
         private static void ProcessSwitches(string[] args)
         {
             Console.WriteLine($"Running instance received command line switch {args[0]}");
@@ -168,7 +186,8 @@ namespace spicam
 
             switch(command)
             {
-
+                case "-quit":
+                case "-exit":
                 case "-stop":
                     {
                         showHelp = false;
@@ -182,7 +201,6 @@ namespace spicam
                         ctsRunningState.Cancel();
                     }
                     break;
-
 
                 case "-quiet":
                     {
@@ -212,12 +230,14 @@ namespace spicam
 
                 case "-snapshot":
                     {
+                        Console.WriteLine($"\n\n{command} switch not implemented yet...\n\n");
                         showHelp = false;
                     }
                     break;
 
                 case "-video":
                     {
+                        Console.WriteLine($"\n\n{command} switch not implemented yet...\n\n");
                         showHelp = false;
 
                         if (args.Length != 2)
@@ -231,6 +251,7 @@ namespace spicam
 
                 case "-stream":
                     {
+                        Console.WriteLine($"\n\n{command} switch not implemented yet...\n\n");
                         showHelp = false;
 
                         if (args.Length != 2)
@@ -244,6 +265,7 @@ namespace spicam
 
                 case "-analysis":
                     {
+                        Console.WriteLine($"\n\n{command} switch not implemented yet...\n\n");
                         showHelp = false;
 
                         if (args.Length != 2)
@@ -257,6 +279,7 @@ namespace spicam
 
                 case "-getmask":
                     {
+                        Console.WriteLine($"\n\n{command} switch not implemented yet...\n\n");
                         showHelp = false;
  
                         if (args.Length != 2)
@@ -269,18 +292,17 @@ namespace spicam
                     break;
 
                 case "-?":
+                case "-help":
                     break;
 
                 default:
-                    Console.WriteLine($"\nUnrecognized switch: {command}");
+                    Console.WriteLine($"\nUnrecognized switch {command}, cancelling requested state");
+                    RequestedState = null;
                     break;
             }
 
             if(showHelp)
             {
-                Console.WriteLine("\nspicam - Simple Pi Camera");
-                Console.WriteLine("\nA basic motion-detecting Raspberry Pi surveillence camera utility.");
-                Console.WriteLine("See https://github.com/MV10/spicam for more information");
                 Console.WriteLine("\nspicam command-line switches:\n");
                 Console.WriteLine("-?                      help (this list)");
                 Console.WriteLine("-stop                   terminates an already-running instance of spicam");

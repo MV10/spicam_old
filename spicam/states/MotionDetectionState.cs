@@ -57,7 +57,7 @@ namespace spicam
         public MotionDetectionState()
             : base()
         {
-            Console.WriteLine("Entering state: motion detection");
+            Console.WriteLine("Requesting state: motion detection");
         }
 
         /// <summary>
@@ -65,7 +65,9 @@ namespace spicam
         /// </summary>
         public override async Task RunAsync(CancellationToken cancellationToken)
         {
-            Initialize();
+            await Initialize();
+
+            Console.WriteLine("Motion detection running.");
 
             await Cam
                 .WithMotionDetection(
@@ -107,7 +109,6 @@ namespace spicam
 
             VideoCaptureHandler.StopRecording();
             ProcessVideoClip();
-            FileProcessing.ClearLocalStorage();
         }
 
         /// <summary>
@@ -123,9 +124,9 @@ namespace spicam
         /// <summary>
         /// <inheritdoc />
         /// </summary>
-        protected override void Initialize()
+        protected override async Task Initialize()
         {
-            base.Initialize();
+            await base.Initialize();
             ConfigureMotionDetection();
         }
 
@@ -241,6 +242,7 @@ namespace spicam
                 case 3:
                     SnapshotCaptureHandler.WriteFrame();
                     snapshotTwoSec = new CancellationTokenSource();
+                    snapshotThreeSec = new CancellationTokenSource();
                     snapshotTwoSec.Token.Register(SnapshotCaptureHandler.WriteFrame);
                     snapshotThreeSec.Token.Register(() =>
                     {
@@ -276,11 +278,11 @@ namespace spicam
 
             var now = DateTime.Now;
 
-            if(now > minimumStopTarget)
+            if(now >= minimumStopTarget)
             {
-                if(now > motionEndedStopTarget || now > maximumStopTarget)
+                if(now >= motionEndedStopTarget || now >= maximumStopTarget)
                 {
-                    if (now > maximumStopTarget)
+                    if (now >= maximumStopTarget)
                     {
                         Console.WriteLine("Maximum recording duration reached.");
                         maxRecordTimeCooldown = now.AddMinutes(AppConfig.Get.Recording.MaximumReachedCooldownMin);
@@ -292,7 +294,7 @@ namespace spicam
 
             if (RecordingActive)
             {
-                if(now > nextSegmentTarget)
+                if(now >= nextSegmentTarget)
                 {
                     Console.WriteLine("Segmenting the recording.");
                     ProcessVideoClip();
@@ -310,7 +312,8 @@ namespace spicam
         private void ProcessVideoClip()
         {
             // This will change after the call to Split
-            var localFilename = VideoCaptureHandler.CurrentFilename;
+            var localFilename = VideoCaptureHandler.CurrentFilename + ".h264";
+
 
             VideoCaptureHandler.Split();
 
@@ -326,7 +329,7 @@ namespace spicam
         /// </summary>
         private void ConfigureMotionDetection()
         {
-            Console.WriteLine("Configuring motion detection...");
+            Console.WriteLine("Configuring motion detection.");
 
             var motionAlgorithm = new MotionAlgorithmRGBDiff(
                     rgbThreshold: AppConfig.Get.Motion.RgbThreshold,

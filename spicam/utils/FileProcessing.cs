@@ -2,6 +2,8 @@
 using System.IO;
 using System.Threading.Tasks;
 
+// TODO Consider a way for long-duration file copy/transcoding to signal work-in-progress to delay app shutdown
+
 namespace spicam
 {
     /// <summary>
@@ -14,12 +16,13 @@ namespace spicam
         /// </summary>
         public static void MoveVideoToStorage(string localFilename, string storageFilename)
         {
-            // TODO Support optional on-the-fly transncoding to MP4
+            // TODO Support optional on-the-fly transcoding to MP4
 
             _ = Task.Run(() =>
             {
                 var localPathname = Path.Combine(AppConfig.Get.LocalPath, localFilename);
                 var storagePathname = Path.Combine(AppConfig.Get.StoragePath, storageFilename);
+                Console.WriteLine($"Moving video, source/destination:\n\t{localPathname}\n\t{storagePathname}");
                 try
                 {
                     File.Move(localPathname, storagePathname, overwrite: true);
@@ -89,7 +92,7 @@ namespace spicam
 
             // TODO Should we log the abandoned file? (It will have a misleading name based on the circular buffer creation time and weird default format.)
 
-            var videos = Directory.GetFiles(Path.Combine(AppConfig.Get.LocalPath, "*.h264"));
+            var videos = Directory.GetFiles(AppConfig.Get.LocalPath, "*.h264");
             foreach(var video in videos)
             {
                 var filename = Path.GetFileName(video);
@@ -116,15 +119,15 @@ namespace spicam
             {
                 try
                 {
-                    DeleteFiles(AppConfig.Get.LocalPath + "*.h264");
-                    DeleteFiles(AppConfig.Get.LocalPath + "*.jpg");
+                    DeleteFiles("*.h264");
+                    DeleteFiles("*.jpg");
                 }
                 catch { }
             });
 
-            static void DeleteFiles(string wildcardPathspec)
+            static void DeleteFiles(string wildcard)
             {
-                var files = Directory.GetFiles(wildcardPathspec);
+                var files = Directory.GetFiles(AppConfig.Get.LocalPath, wildcard);
                 foreach (var pathname in files)
                 {
                     File.Delete(pathname);
