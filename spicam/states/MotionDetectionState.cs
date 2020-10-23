@@ -1,5 +1,7 @@
 ﻿using MMALSharp.Processors.Motion;
+using spicam.utils;
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -104,9 +106,8 @@ namespace spicam
             recordingStatusChecker?.Cancel();
 
             VideoCaptureHandler.StopRecording();
-
-            ProcessFiles();
-            FileProcessing.DeleteAbandonedFiles();
+            ProcessVideoClip();
+            FileProcessing.ClearLocalStorage();
         }
 
         /// <summary>
@@ -131,7 +132,7 @@ namespace spicam
         /// <summary>
         /// The event handler that is invoked when the library detects motion.
         /// </summary>
-        private async void OnMotionDetected()
+        private void OnMotionDetected()
         {
             try
             {
@@ -193,7 +194,19 @@ namespace spicam
         /// </summary>
         private void LogMotionEvent()
         {
-            // TODO Log new motion event
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    File.AppendAllText(Path.Combine(AppConfig.Get.StoragePath, "motion_events.log"), recordingStartTimeFilename);
+                }
+                catch(Exception ex)
+                {
+                    Console.WriteLine($"\nException of type {ex.GetType().Name} logging motion event\n{ex.Message}");
+                    if (ex.InnerException != null) Console.Write(ex.InnerException.Message);
+                    Console.WriteLine($"\n{ex.StackTrace}");
+                }
+            });
         }
 
         /// <summary>
@@ -202,15 +215,16 @@ namespace spicam
         /// </summary>
         private void PrepareSnapshots()
         {
+            // MailClient.ProcessNotifications also moves snapshots to storage
             switch (AppConfig.Get.Recording.SnapshoutCount)
             {
                 case 0:
-                    SendNotifications();
+                    MailClient.ProcessNotifications(recordingStartTimeFilename);
                     break;
 
                 case 1:
                     SnapshotCaptureHandler.WriteFrame();
-                    SendNotifications();
+                    MailClient.ProcessNotifications(recordingStartTimeFilename);
                     break;
 
                 case 2:
@@ -219,7 +233,7 @@ namespace spicam
                     snapshotTwoSec.Token.Register(() =>
                     {
                         SnapshotCaptureHandler.WriteFrame();
-                        SendNotifications();
+                        MailClient.ProcessNotifications(recordingStartTimeFilename);
                     });
                     snapshotTwoSec.CancelAfter(1000);
                     break;
@@ -228,20 +242,15 @@ namespace spicam
                     SnapshotCaptureHandler.WriteFrame();
                     snapshotTwoSec = new CancellationTokenSource();
                     snapshotTwoSec.Token.Register(SnapshotCaptureHandler.WriteFrame);
+                    snapshotThreeSec.Token.Register(() =>
+                    {
+                        SnapshotCaptureHandler.WriteFrame();
+                        MailClient.ProcessNotifications(recordingStartTimeFilename);
+                    });
                     snapshotTwoSec.CancelAfter(1000);
+                    snapshotThreeSec.CancelAfter(2000);
                     break;
             }
-        }
-
-        /// <summary>
-        /// Updates the motion detection log and sends notifications (including any snapshot attachments,
-        /// so do not invoke this until all snapshots have been generated).
-        /// </summary>
-        private void SendNotifications()
-        {
-            // TODO Send notification emails with snapshot attachments
-
-            FileProcessing.MoveSnapshotsToStorage();
         }
 
         /// <summary>
@@ -286,7 +295,7 @@ namespace spicam
                 if(now > nextSegmentTarget)
                 {
                     Console.WriteLine("Segmenting the recording.");
-                    ProcessFiles();
+                    ProcessVideoClip();
                     nextSegmentTarget = now.AddSeconds(AppConfig.Get.Recording.SegmentRecordingSecs);
                 }
 
@@ -298,16 +307,14 @@ namespace spicam
         /// Splits longer recordings and processes the file so that the recording does not exceed the
         /// allocated local storage space. If recording is over, call StopRecording before calling this.
         /// </summary>
-        private void ProcessFiles()
+        private void ProcessVideoClip()
         {
             // This will change after the call to Split
             var localFilename = VideoCaptureHandler.CurrentFilename;
 
-            // TODO Support optional on-the-fly encoding to MP4
-            var storageFilename = $"{recordingStartTimeFilename}_{recordingSegment:000}.h264";
-
             VideoCaptureHandler.Split();
 
+            var storageFilename = $"{recordingStartTimeFilename}_{recordingSegment:000}.h264";
             FileProcessing.MoveVideoToStorage(localFilename, storageFilename);
 
             recordingSegment++;

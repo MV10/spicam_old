@@ -64,7 +64,9 @@ namespace spicam
                 _ = Task.Run(() => CommandLineSwitchPipe.StartServer(ProcessSwitches, ctsSwitchPipe.Token));
 
                 // The localpath should be clear of files at startup
-                HandleAbandonedFiles();
+                FileProcessing.MoveSnapshotsToStorage();
+                FileProcessing.MoveAbandonedVideoToStorage();
+                FileProcessing.ClearLocalStorage();
 
                 // The default state, although some command-line switches may change this
                 RequestedState = new MotionDetectionState();
@@ -115,15 +117,6 @@ namespace spicam
             Console.WriteLine("Exiting spicam.");
         }
 
-        private static void HandleAbandonedFiles()
-        {
-            FileProcessing.MoveSnapshotsToStorage();
-
-            // TODO Process h.264 files, figure out how to tell abandoned buffers from saved clips
-
-            FileProcessing.DeleteAbandonedFiles();
-        }
-
         private static void ValidateConfiguration()
         {
             Console.WriteLine("Loading and validating configuration...");
@@ -150,6 +143,14 @@ namespace spicam
             var snaps = AppConfig.Get.Recording.SnapshoutCount;
             if (snaps < 0 || snaps > 3)
                 throw new Exception("SnapshotCount must be in the range of 0 to 3.");
+
+            // Do we have email addresses?
+            var mail = AppConfig.Get.Email;
+            if (!string.IsNullOrWhiteSpace(mail.Server))
+            {
+                if (string.IsNullOrWhiteSpace(mail.From) || string.IsNullOrWhiteSpace(mail.To))
+                    throw new Exception("When an email server is specified, the from and to addresses are mandatory.");
+            }
         }
 
         private static void ProcessSwitches(string[] args)

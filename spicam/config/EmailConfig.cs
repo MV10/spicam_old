@@ -7,10 +7,15 @@ namespace spicam
     public class EmailConfig
     {
         /// <summary>
-        /// Optional. IP or network name and port of an open SMTP server for sending
+        /// Optional. IP or network name of an open SMTP server for sending
         /// email notification of motion detection events.
         /// </summary>
         public string Server { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Optional. Port number of an open SMTP server. Default is port 25.
+        /// </summary>
+        public int Port { get; set; } = 25;
 
         /// <summary>
         /// Optional (though required by some mail servers such as GMail).

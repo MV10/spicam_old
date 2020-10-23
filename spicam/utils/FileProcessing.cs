@@ -14,14 +14,15 @@ namespace spicam
         /// </summary>
         public static void MoveVideoToStorage(string localFilename, string storageFilename)
         {
-            // TODO Support optional on-the-fly encoding to MP4
+            // TODO Support optional on-the-fly transncoding to MP4
 
             _ = Task.Run(() =>
             {
-                var local = AppConfig.Get.LocalPath + localFilename;
+                var localPathname = Path.Combine(AppConfig.Get.LocalPath, localFilename);
+                var storagePathname = Path.Combine(AppConfig.Get.StoragePath, storageFilename);
                 try
                 {
-                    File.Move(local, AppConfig.Get.StoragePath + storageFilename, overwrite: true);
+                    File.Move(localPathname, storagePathname, overwrite: true);
                 }
                 catch(Exception ex)
                 {
@@ -33,7 +34,7 @@ namespace spicam
                 {
                     // On the off chance that an exception occurred, we don't
                     // want to perpetually fill up the local storage with videos
-                    File.Delete(local);
+                    File.Delete(localPathname);
                 }
             });
         }
@@ -53,7 +54,7 @@ namespace spicam
                     if (files.Length == 0) return;
                     foreach(var localPathname in files)
                     {
-                        var storagePathname = AppConfig.Get.StoragePath + Path.GetFileName(localPathname);
+                        var storagePathname = Path.Combine(AppConfig.Get.StoragePath, Path.GetFileName(localPathname));
                         File.Move(localPathname, storagePathname);
                     }
                 }
@@ -80,10 +81,36 @@ namespace spicam
         }
 
         /// <summary>
-        /// The circular buffer continuously writes frame data to local storage.
-        /// When motion detection ends, this buffer is left behind.
+        /// If h.264 files are found at startup, move them to storage.
         /// </summary>
-        public static void DeleteAbandonedFiles()
+        public static void MoveAbandonedVideoToStorage()
+        {
+            // TODO Support optional on-the-fly transcoding to MP4
+
+            // TODO Should we log the abandoned file? (It will have a misleading name based on the circular buffer creation time and weird default format.)
+
+            var videos = Directory.GetFiles(Path.Combine(AppConfig.Get.LocalPath, "*.h264"));
+            foreach(var video in videos)
+            {
+                var filename = Path.GetFileName(video);
+                var storagePathname = Path.Combine(AppConfig.Get.StoragePath, filename);
+                try
+                {
+                    File.Move(video, storagePathname, overwrite: true);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"\nException of type {ex.GetType().Name} moving abandoned video {filename} to storage\n{ex.Message}");
+                    if (ex.InnerException != null) Console.Write(ex.InnerException.Message);
+                    Console.WriteLine($"\n{ex.StackTrace}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Removes all h.264 and jpg files from local storage.
+        /// </summary>
+        public static void ClearLocalStorage()
         {
             _ = Task.Run(() =>
             {
