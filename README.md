@@ -2,6 +2,16 @@
 
 A bare-bones Raspberry Pi security camera application with motion detection, video clip and snapshot capture, and email notification support.
 
+## ARCHIVED
+
+The `spicam` repo was renamed `spicam_old` and archived when Broadcom changed the proprietary GPU code, effectively preventing much of
+what we were doing via MMAL. So much for the Pi Foundation constantly rah-rah-ing about open source, eh? While this would have been a very
+fun project to complete and use, I gave up on this angle. The new `spicam` will simply monitor modern Amcrest IP cameras (specifically) for
+event notifications and route the relevant clips to safe storage on a NAS. Not nearly as interesting, but it was probably inevitable that
+onboard processing would become this cheap and commonplace.
+
+## Original README:
+
 | :warning: Currently depends on a pre-release (v0.7) MMALSharp library using locally-built DLLs. |
 | --- |
 
